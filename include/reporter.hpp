@@ -21,7 +21,7 @@
 #include <WinSock2.h>
 #include <mutex>
 
-#include "alca/alca.h"
+#include "alca.h"
 #include "log.hpp"
 
 #define GV_EVENT_FILE_PREFIX "file"    , AC_VERSION(0, 0, 1)

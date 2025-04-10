@@ -21,7 +21,7 @@
 #include "trace.hpp"
 #include <objbase.h>
 
-#include "alca/alca.h"
+#include "alca.h"
 #include "log.hpp"
 #include "server.hpp"
 #include "utils.hpp"

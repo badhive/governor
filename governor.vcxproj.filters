@@ -15,63 +15,63 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="main.cpp">
+    <ClCompile Include="src\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="service.cpp">
+    <ClCompile Include="src\service.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="log.cpp">
+    <ClCompile Include="src\log.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="handler.cpp">
+    <ClCompile Include="src\handler.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="trace.cpp">
+    <ClCompile Include="src\trace.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="server.cpp">
+    <ClCompile Include="src\server.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="utils.cpp">
+    <ClCompile Include="src\utils.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="fb.cpp">
+    <ClCompile Include="src\fb.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="service.hpp">
+    <ClInclude Include="include\service.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="governor.h">
+    <ClInclude Include="include\governor.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="log.hpp">
+    <ClInclude Include="include\log.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="handler.hpp">
+    <ClInclude Include="include\handler.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="trace.hpp">
+    <ClInclude Include="include\trace.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="alca.fb.hpp">
+    <ClInclude Include="include\alca.fb.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="win32.h">
+    <ClInclude Include="include\win32.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="server.hpp">
+    <ClInclude Include="include\server.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="reporter.hpp">
+    <ClInclude Include="include\reporter.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="utils.hpp">
+    <ClInclude Include="include\utils.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="fb.hpp">
+    <ClInclude Include="include\fb.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

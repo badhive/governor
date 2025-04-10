@@ -104,7 +104,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(SolutionDir)libs\krabsetw\krabs;$(SolutionDir)libs\flatbuffers\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)libs\krabsetw\krabs;$(SolutionDir)libs\flatbuffers\include;$(SolutionDir)include;$(SolutionDir)alca</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <ShowIncludes>false</ShowIncludes>
     </ClCompile>
@@ -134,27 +134,27 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="fb.cpp" />
-    <ClCompile Include="server.cpp" />
-    <ClCompile Include="handler.cpp" />
-    <ClCompile Include="log.cpp" />
-    <ClCompile Include="main.cpp" />
-    <ClCompile Include="service.cpp" />
-    <ClCompile Include="trace.cpp" />
-    <ClCompile Include="utils.cpp" />
+    <ClCompile Include="src\fb.cpp" />
+    <ClCompile Include="src\server.cpp" />
+    <ClCompile Include="src\handler.cpp" />
+    <ClCompile Include="src\log.cpp" />
+    <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\service.cpp" />
+    <ClCompile Include="src\trace.cpp" />
+    <ClCompile Include="src\utils.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="alca.fb.hpp" />
-    <ClInclude Include="fb.hpp" />
-    <ClInclude Include="reporter.hpp" />
-    <ClInclude Include="server.hpp" />
-    <ClInclude Include="handler.hpp" />
-    <ClInclude Include="log.hpp" />
-    <ClInclude Include="governor.h" />
-    <ClInclude Include="service.hpp" />
-    <ClInclude Include="trace.hpp" />
-    <ClInclude Include="utils.hpp" />
-    <ClInclude Include="win32.h" />
+    <ClInclude Include="include\alca.fb.hpp" />
+    <ClInclude Include="include\fb.hpp" />
+    <ClInclude Include="include\reporter.hpp" />
+    <ClInclude Include="include\server.hpp" />
+    <ClInclude Include="include\handler.hpp" />
+    <ClInclude Include="include\log.hpp" />
+    <ClInclude Include="include\governor.h" />
+    <ClInclude Include="include\service.hpp" />
+    <ClInclude Include="include\trace.hpp" />
+    <ClInclude Include="include\utils.hpp" />
+    <ClInclude Include="include\win32.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include=".gitignore" />
