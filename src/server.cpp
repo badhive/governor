@@ -39,7 +39,7 @@ typedef struct _GV_CONN_CTX
 
 void HandleConn(PGV_CONN_CTX ctx);
 
-DWORD WINAPI HandleConnWrapper(LPVOID param)
+DWORD WINAPI HandleConnThunk(LPVOID param)
 {
     PGV_CONN_CTX ctx = static_cast<PGV_CONN_CTX>(param);
     SOCKADDR clientAddr{ 0 };
@@ -86,7 +86,7 @@ DWORD WINAPI HandleConnWrapper(LPVOID param)
     }
     HandleConn(ctx);
     closesocket(s);
-    return 0;
+    return ERROR_SUCCESS;
 }
 
 DWORD GvAwaitAlcaRequests(HANDLE hEvent)
@@ -125,9 +125,9 @@ DWORD GvAwaitAlcaRequests(HANDLE hEvent)
         if (clientSocket != INVALID_SOCKET) {
             HANDLE hThread;
             GV_CONN_CTX *ctx = new GV_CONN_CTX { clientSocket, hEvent };
-            if (HandleConnWrapper(ctx) != ERROR_SUCCESS) // single-threaded
+            if (HandleConnThunk(ctx) != ERROR_SUCCESS) // single-threaded
             {
-                LogSystemError(REPORTING_CATEGORY, __FUNCTIONT__, GetLastError());
+                LogSystemError(REPORTING_CATEGORY, __FUNCTIONT__, WSAGetLastError());
             }
             continue;
         }
@@ -154,15 +154,9 @@ void HandleConn(PGV_CONN_CTX ctx)
     std::wstring szFilePath;
     SOCKET clientSocket = ctx->clientSocket;
 
-    GUID fileGuid{ 0 };
-    if (CoCreateGuid(&fileGuid) != S_OK)
-    {
-        LogError(REPORTING_CATEGORY, __FUNCTIONT__, TEXT("CoCreateGuid failed"));
+    std::wstring guidString = RandomGuid();
+    if (guidString.length() == 0)
         return;
-    }
-    std::wstring guidString;
-    guidString.resize(37);
-    StringFromGUID2(fileGuid, guidString.data(), guidString.size());
 
     while (packetHeader.sequence != AC_PACKET_SEQUENCE_LAST)
     {
@@ -236,7 +230,11 @@ void HandleConn(PGV_CONN_CTX ctx)
         reporter.report_trace_status(AC_PACKET_DATA_SUBMIT_ERROR);
         return;
     }
-    
+    if (pi.hProcess == NULL || pi.hThread == NULL)
+    {
+        LogError(REPORTING_CATEGORY, __FUNCTIONT__, TEXT("Process was not created"));
+        return;
+    }
     GV_EVENT_CONTEXT eventCtx{ &reporter };
     GV_TRACE_CONTEXT session{ pi, clientSocket, nullptr };
     auto trace = krabs::kernel_trace(GV_SVCNAMEW, &eventCtx);

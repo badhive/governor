@@ -19,6 +19,7 @@
 flatbuffers::FlatBufferBuilder MarshalFileEvent(
 	Sensor::FileAction action,
 	std::wstring fileName,
-	std::wstring newFileName = L"",
-	std::wstring opcodeName = L""
+	std::wstring newFileName,
+	std::wstring opcodeName,
+	bool fileIsDir
 );

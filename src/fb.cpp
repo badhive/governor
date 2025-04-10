@@ -18,12 +18,14 @@
 
 #include "alca.fb.hpp"
 #include "log.hpp"
+#include "utils.hpp"
 
 flatbuffers::FlatBufferBuilder MarshalFileEvent(
 	Sensor::FileAction action,
 	std::wstring fileName,
 	std::wstring newFileName,
-	std::wstring opcodeName
+	std::wstring opcodeName,
+	bool fileIsDir
 )
 {
 	std::string newFileNameA(newFileName.begin(), newFileName.end());
@@ -39,6 +41,8 @@ flatbuffers::FlatBufferBuilder MarshalFileEvent(
 	flatbuffers::Offset<flatbuffers::String> fbExt = builder.CreateString(ext);
 	flatbuffers::Offset<flatbuffers::String> fbNewName = builder.CreateString(newFileNameA);
 
+	bool fbIsDir = fileIsDir;
+
 	LogWrite(
 		STATUS_SEVERITY_INFORMATIONAL,
 		FILE_CATEGORY,
@@ -46,11 +50,13 @@ flatbuffers::FlatBufferBuilder MarshalFileEvent(
 		TEXT("	operation = %ls\n")
 		TEXT("	action    = %d\n")
 		TEXT("	path      = %ls\n")
-		TEXT("	new_name  = %ls\n"),
+		TEXT("	new_name  = %ls\n")
+		TEXT("	is_dir    = %ls\n"),
 		opcodeName.c_str(),
 		action,
 		fileName.c_str(),
-		newFileName.c_str()
+		newFileName.c_str(),
+		fbIsDir ? L"yes" : L"no"
 	);
 
 	flatbuffers::Offset<Sensor::FileEvent> evt =
@@ -61,13 +67,8 @@ flatbuffers::FlatBufferBuilder MarshalFileEvent(
 			fbPath,
 			fbDir,
 			fbExt,
-			0,
-			0,
-			0,
-			0,
-			0,
-			0,
-			fbNewName
+			fbNewName,
+			fbIsDir
 		);
 
 	builder.Finish(evt);

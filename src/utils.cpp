@@ -14,6 +14,10 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <windows.h>
+#include <aclapi.h>
+#include <sddl.h>
+
 #include "utils.hpp"
 
 DWORD CreateSuspendedProcess(LPCWSTR lpExecutablePath, LPPROCESS_INFORMATION ppi)
@@ -42,4 +46,16 @@ DWORD CreateSuspendedProcess(LPCWSTR lpExecutablePath, LPPROCESS_INFORMATION ppi
         return GetLastError();
     }
     return ERROR_SUCCESS;
+}
+
+std::wstring RandomGuid()
+{
+    std::wstring guidString;
+    GUID fileGuid{ 0 };
+    if (CoCreateGuid(&fileGuid) == S_OK)
+    {
+        guidString.resize(37);
+        StringFromGUID2(fileGuid, guidString.data(), guidString.size());
+    }
+    return guidString;
 }

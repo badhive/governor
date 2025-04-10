@@ -47,6 +47,7 @@ void FileTraceCallback(const EVENT_RECORD& EventRecord, const krabs::trace_conte
 	std::wstring operation;
 	int opcode = schema.event_opcode();
 	std::wstring filePath, newFilePath;
+	bool isDir = false;
 	Sensor::FileAction action = Sensor::FileAction_MIN;
 
 	try
@@ -62,12 +63,18 @@ void FileTraceCallback(const EVENT_RECORD& EventRecord, const krabs::trace_conte
 			createRequest.filePath = parser.parse<std::wstring>(L"OpenPath");
 			createRequest.fileObject = parser.parse<krabs::pointer>(L"FileObject");
 			createRequest.irp = parser.parse<krabs::pointer>(L"IrpPtr");
+			uint32_t createOptions = parser.parse<uint32_t>(L"CreateOptions");
+			createRequest.isDir = createOptions & FILE_DIRECTORY_FILE;
 
 			if (fileContext.CreateRequestMap.count(createRequest.irp.address) > 0)
 			{
 				return; // shouldn't handle duplicate CreateFile requests
 			}
-			fileContext.ObjectNameMap[createRequest.fileObject.address] = createRequest.filePath;
+			TRACE_FILE_INFO_ENTRY ie{};
+			ie.path = createRequest.filePath;
+			ie.isDir = createRequest.isDir;
+
+			fileContext.ObjectInfoMap[createRequest.fileObject.address] = ie;
 			fileContext.CreateRequestMap[createRequest.irp.address] = createRequest;
 			return;
 		}
@@ -87,6 +94,7 @@ void FileTraceCallback(const EVENT_RECORD& EventRecord, const krabs::trace_conte
 				action = Sensor::FileAction_FileCreate;
 				operation = WSTROP(Sensor::FileAction_FileCreate);
 				filePath = createRequest.filePath;
+				isDir = createRequest.isDir;
 			}
 			// statuses indicating that file was truncated
 			else if (createStatus == FILE_SUPERSEDED
@@ -96,6 +104,7 @@ void FileTraceCallback(const EVENT_RECORD& EventRecord, const krabs::trace_conte
 				action = Sensor::FileAction_FileModify;
 				operation = WSTROP(Sensor::FileAction_FileModify);
 				filePath = createRequest.filePath;
+				isDir = createRequest.isDir;
 			}
 			// status indicating that file existed
 			else if (createStatus == FILE_OPENED)
@@ -122,6 +131,7 @@ void FileTraceCallback(const EVENT_RECORD& EventRecord, const krabs::trace_conte
 			
 					filePath = entry.filePath;
 					newFilePath = createRequest.filePath;
+					isDir = createRequest.isDir;
 				}
 				fileContext.RenameRequestMap.erase(irp.address);
 			}
@@ -135,10 +145,12 @@ void FileTraceCallback(const EVENT_RECORD& EventRecord, const krabs::trace_conte
 
 			krabs::pointer fileObject = parser.parse<krabs::pointer>(L"FileObject");
 
-			const std::wstring& fileName = fileContext.ObjectNameMap.at(fileObject.address);
+			const auto& ie = fileContext.ObjectInfoMap.at(fileObject.address);
+			const std::wstring& fileName = ie.path;
 			action = Sensor::FileAction_FileDelete;
 			operation = WSTROP(Sensor::FileAction_FileDelete);
 			filePath = fileName;
+			isDir = ie.isDir;
 
 			// if it has been deleted then it doesn't need to be in either
 			fileContext.ModifiedFileMap.erase(fileObject.address);
@@ -177,6 +189,7 @@ void FileTraceCallback(const EVENT_RECORD& EventRecord, const krabs::trace_conte
 				action = Sensor::FileAction_FileModify;
 				operation = WSTROP(Sensor::FileAction_FileModify);
 				filePath = openedFile.filePath;
+				isDir = openedFile.isDir;
 			}
 			fileContext.ModifiedFileMap.erase(fileObject.address);
 			fileContext.PreExistingFileMap.erase(fileObject.address);
@@ -194,9 +207,11 @@ void FileTraceCallback(const EVENT_RECORD& EventRecord, const krabs::trace_conte
 			krabs::pointer irp = parser.parse<krabs::pointer>(L"IrpPtr");
 
 			TRACE_FILE_MAP_ENTRY entry{};
-			entry.filePath = fileContext.ObjectNameMap.at(fileObject.address);
+			const auto& ie = fileContext.ObjectInfoMap.at(fileObject.address);
+			entry.filePath = ie.path;
 			entry.fileObject = fileObject;
 			entry.irp = irp;
+			entry.isDir = ie.isDir;
 
 			fileContext.RenameRequestMap[irp.address] = entry;
 			return;
@@ -216,7 +231,8 @@ void FileTraceCallback(const EVENT_RECORD& EventRecord, const krabs::trace_conte
 		action,
 		filePath,
 		newFilePath,
-		operation);
+		operation,
+		isDir);
 
 	const uint8_t* event_data = builder.GetBufferPointer();
 	int rc;

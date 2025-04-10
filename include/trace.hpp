@@ -26,12 +26,14 @@ typedef struct _TRACE_FILE_MAP_ENTRY
 	std::wstring filePath;
 	krabs::pointer fileObject;
 	krabs::pointer irp;
+	bool isDir;
 } TRACE_FILE_MAP_ENTRY, * PTRACE_FILE_MAP_ENTRY;
 
-typedef struct _TRACE_OPERATION_INFO
+typedef struct _TRACE_FILE_INFO_ENTRY
 {
-
-} TRACE_OPERATION_INFO, * PTRACE_OPERATION_INFO;
+	std::wstring path;
+	bool isDir;
+} TRACE_FILE_INFO_ENTRY, * PTRACE_FILE_INFO_ENTRY;
 
 typedef struct _GV_EVENT_CONTEXT
 {
@@ -43,10 +45,8 @@ typedef struct _GV_EVENT_CONTEXT
 		std::map<ULONG_PTR, TRACE_FILE_MAP_ENTRY> RenameRequestMap;
 		std::map<ULONG_PTR, TRACE_FILE_MAP_ENTRY> PreExistingFileMap;
 		std::map<ULONG_PTR, TRACE_FILE_MAP_ENTRY> ModifiedFileMap;
-		std::map<ULONG_PTR, TRACE_OPERATION_INFO> IrpInfoMap;
-		std::map<ULONG_PTR, std::wstring> ObjectNameMap;
+		std::map<ULONG_PTR, TRACE_FILE_INFO_ENTRY> ObjectInfoMap;
 	} File;
-
 } GV_EVENT_CONTEXT, * PGV_EVENT_CONTEXT;
 
 typedef struct _GV_TRACE_CONTEXT
