@@ -1,0 +1,6 @@
+[submodule "libs/flatbuffers"]
+	path = libs/flatbuffers
+	url = https://github.com/google/flatbuffers
+[submodule "libs/krabsetw"]
+	path = libs/krabsetw
+	url = https://github.com/pygrum/krabsetw
