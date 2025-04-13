@@ -56,7 +56,7 @@ Depending on the volume, newly introduced fields should result in a minor versio
 
 ### Limitations (entirely ETW's fault)
 
-- On occasion, certain file events (`FILE_RENAME`, `FILE_MODIFY`) may not be caught by Governor. This
+- On occasion, certain file events (`FileRename`, `FileModify`) may not be caught by Governor. This
   is due to unknown behaviour within ETW itself, perhaps related to some optimisation. Most runs, however,
   will register these events. Keep this in mind when writing or running alca rules.
 - ETW provides a very limited amount of information for registry events, on top of having no way to determine what
