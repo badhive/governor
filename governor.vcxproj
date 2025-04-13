@@ -107,6 +107,7 @@
       <AdditionalIncludeDirectories>$(SolutionDir)libs\krabsetw\krabs;$(SolutionDir)libs\flatbuffers\include;$(SolutionDir)include;$(SolutionDir)alca</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <ShowIncludes>false</ShowIncludes>
+      <AdditionalOptions>/DNOMINMAX</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

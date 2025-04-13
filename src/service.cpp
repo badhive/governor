@@ -254,6 +254,7 @@ static BOOL WINAPI ctrlHandler(DWORD signal) {
 	if (signal == CTRL_C_EVENT)
 	{
 		SetEvent(g_hStopEvent);
+		CleanupUtils();
 	}
 	return TRUE;
 }
@@ -276,6 +277,12 @@ VOID SvcInit(BOOL bService, BOOL bVerbose)
 			_tprintf(TEXT("Failed to set CTRL-C handler: %d\n"), GetLastError());
 			return;
 		}
+	}
+	DWORD status = InitUtils();
+	if (status != ERROR_SUCCESS)
+	{
+		LogSystemError(MAIN_CATEGORY, __FUNCTIONT__, status);
+		return;
 	}
 	HANDLE hThread = CreateThread(NULL, 0, GvAwaitAlcaRequests, g_hStopEvent, 0, NULL);
 	if (hThread == NULL)

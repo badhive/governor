@@ -123,7 +123,12 @@ DWORD GvAwaitAlcaRequests(HANDLE hEvent)
         }
         SOCKET clientSocket = accept(serverSocket, NULL, NULL);
         if (clientSocket != INVALID_SOCKET) {
-            HANDLE hThread;
+            DWORD clientMode = 0;
+            if ((rc = ioctlsocket(clientSocket, FIONBIO, &clientMode)) != 0)
+            {
+                LogError(REPORTING_CATEGORY, __FUNCTIONT__, TEXT("Failed to set client socket to blocking: %d"), rc);
+                return rc;
+            }
             GV_CONN_CTX *ctx = new GV_CONN_CTX { clientSocket, hEvent };
             if (HandleConnThunk(ctx) != ERROR_SUCCESS) // single-threaded
             {
@@ -146,11 +151,9 @@ void HandleConn(PGV_CONN_CTX ctx)
 {
     int rc;
     DWORD status;
-    UINT32 packetSize = 0;
-    ac_packet_handle hPacket;
-    ac_packet_header packetHeader{0};
     std::vector<CHAR> fileNameBuffer;
-    std::ofstream outfile;
+    HANDLE hOut = NULL;
+    ac_packet_header packetHeader{0};
     std::wstring szFilePath;
     SOCKET clientSocket = ctx->clientSocket;
 
@@ -160,10 +163,13 @@ void HandleConn(PGV_CONN_CTX ctx)
 
     while (packetHeader.sequence != AC_PACKET_SEQUENCE_LAST)
     {
+        ZeroMemory(&packetHeader, sizeof(packetHeader));
+        ac_packet_handle hPacket;
+        UINT32 packetSize = 0;
         rc = recv(clientSocket, reinterpret_cast<char*>(&packetSize), sizeof(packetSize), 0);
         if (rc <= 0)
         {
-            LogError(REPORTING_CATEGORY, __FUNCTIONT__, TEXT("Failed to receive data from ALCA: rc=%d"), rc);
+            LogError(REPORTING_CATEGORY, __FUNCTIONT__, TEXT("Failed to receive data from ALCA: %d"), WSAGetLastError());
             return;
         }
         packetSize = netint(packetSize);
@@ -178,13 +184,20 @@ void HandleConn(PGV_CONN_CTX ctx)
         }
 
         std::vector<char> packet(packetSize);
-        rc = recv(clientSocket, packet.data(), packetSize, 0);
-        if (rc <= 0)
+        int totalSize = 0;
+        int remainingSize = packetSize;
+        while (totalSize < packetSize)
         {
-            LogError(REPORTING_CATEGORY, __FUNCTIONT__, TEXT("Failed to receive packet: rc=%d"), rc);
-            return;
+            rc = recv(clientSocket, packet.data() + totalSize, remainingSize, 0);
+            if (rc <= 0)
+            {
+                LogError(REPORTING_CATEGORY, __FUNCTIONT__, TEXT("Failed to receive packet: rc=%d"), rc);
+                return;
+            }
+            totalSize += rc;
+            remainingSize -= rc;
         }
-        if (ac_packet_read(reinterpret_cast<const uint8_t*>(packet.data()), packet.size(), &hPacket) < 0)
+        if (ac_packet_read(reinterpret_cast<const uint8_t*>(packet.data()), (uint32_t)packet.size(), &hPacket) < 0)
         {
             LogError(REPORTING_CATEGORY, __FUNCTIONT__, TEXT("Failed to read packet - invalid format"));
             return;
@@ -195,6 +208,7 @@ void HandleConn(PGV_CONN_CTX ctx)
         if (packetHeader.magic != ALCA_MAGIC || packetHeader.version != (ALCA_VERSION))
         {
             LogError(REPORTING_CATEGORY, __FUNCTIONT__, TEXT("Bad packet (invalid magic / version)"));
+            ac_packet_destroy(hPacket);
             return;
         }
 
@@ -202,19 +216,50 @@ void HandleConn(PGV_CONN_CTX ctx)
         ac_packet_get_data(hPacket, packetData.data());
         if (packetHeader.data_type == AC_PACKET_DATA_REMOTE_SUBMIT)
         {
-            if (!outfile.is_open())
-                szFilePath = std::filesystem::temp_directory_path().wstring() + guidString + std::wstring(L".exe");
-                outfile.open(szFilePath, std::ios::binary);
-            outfile.write(reinterpret_cast<const char*>(packetData.data()), packetData.size());
+            if (hOut == NULL)
+            {
+                WCHAR lpTempPath[MAX_PATH] = { 0 };
+                GetTempPathW(MAX_PATH, lpTempPath);
+                szFilePath = std::wstring(lpTempPath) + guidString;
+                szFilePath += L".exe";
+                hOut = CreateFileW(
+                    szFilePath.c_str(),
+                    FILE_APPEND_DATA | FILE_GENERIC_READ,
+                    0,
+                    NULL,
+                    CREATE_NEW,
+                    FILE_ATTRIBUTE_NORMAL,
+                    NULL
+                );
+                if (hOut == INVALID_HANDLE_VALUE)
+                {
+                    LogSystemError(REPORTING_CATEGORY, __FUNCTIONT__, GetLastError());
+                    ac_packet_destroy(hPacket);
+                    return;
+                }
+                LogWrite(STATUS_SEVERITY_INFORMATIONAL, REPORTING_CATEGORY, TEXT("Writing remote file to %ls..."), szFilePath.c_str());
+            }
+            SetFilePointer(hOut, 0, NULL, FILE_END);
+            DWORD dwWritten;
+            if (!WriteFile(hOut, reinterpret_cast<const char*>(packetData.data()), packetData.size(), &dwWritten, NULL))
+            {
+                LogSystemError(REPORTING_CATEGORY, __FUNCTIONT__, GetLastError());
+                CloseHandle(hOut);
+                ac_packet_destroy(hPacket);
+                return;
+            }
         }
         else if (packetHeader.data_type == AC_PACKET_DATA_LOCAL_SUBMIT)
         {
             fileNameBuffer.insert(fileNameBuffer.end(), packetData.begin(), packetData.end());
         }
+        ac_packet_destroy(hPacket);
+        hPacket = NULL;
     }
-    if (outfile.is_open())
+    if (hOut != NULL)
     {
-        outfile.close();
+        LogWrite(STATUS_SEVERITY_INFORMATIONAL, REPORTING_CATEGORY, TEXT("Received remote submission: %ls"), szFilePath.c_str());
+        CloseHandle(hOut);
     }
     if (fileNameBuffer.size() > 0)
     {
@@ -235,10 +280,12 @@ void HandleConn(PGV_CONN_CTX ctx)
         LogError(REPORTING_CATEGORY, __FUNCTIONT__, TEXT("Process was not created"));
         return;
     }
-    GV_EVENT_CONTEXT eventCtx{ &reporter };
-    GV_TRACE_CONTEXT session{ pi, clientSocket, nullptr };
+    GV_EVENT_CONTEXT eventCtx{ &reporter, pi };
+
     auto trace = krabs::kernel_trace(GV_SVCNAMEW, &eventCtx);
-    session.Trace = &trace;
+
+    GV_TRACE_CONTEXT session{ pi, clientSocket, nullptr };
+    session.trace = &trace;
 
     LogWrite(STATUS_SEVERITY_INFORMATIONAL, REPORTING_CATEGORY, TEXT("[PID=%d] Starting trace"), pi.dwProcessId);
 
@@ -248,7 +295,7 @@ void HandleConn(PGV_CONN_CTX ctx)
     if ((rc = reporter.report_trace_status(
         AC_PACKET_DATA_TRACE_START,
         reinterpret_cast<const uint8_t*>(str.c_str()),
-        str.size())) != 0)
+        (uint32_t)str.size())) != 0)
     {
         LogError(REPORTING_CATEGORY, __FUNCTIONT__, TEXT("Failed to report status: %d"), rc);
         return;
@@ -331,6 +378,11 @@ void HandleConn(PGV_CONN_CTX ctx)
                 , trace_stats.eventsLost
                 , trace_stats.eventsTotal
             );
+            if (packetHeader.data_type == AC_PACKET_DATA_REMOTE_SUBMIT)
+            {
+                if (!DeleteFileW(szFilePath.c_str()))
+                    LogSystemError(REPORTING_CATEGORY, __FUNCTIONT__, GetLastError());
+            }
             return; // trace->stop() called
         }
     }

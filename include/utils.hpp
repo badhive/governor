@@ -16,6 +16,7 @@
 
 #include <windows.h>
 #include <string>
+#include <win32.h>
 
 #define GV_SVCNAME TEXT("Alca.Sensor.Governor")
 #define GV_SVCNAMEW L"Alca.Sensor.Governor"
@@ -23,3 +24,11 @@
 DWORD CreateSuspendedProcess(LPCWSTR lpExecutablePath, LPPROCESS_INFORMATION ppi);
 
 std::wstring RandomGuid();
+
+DWORD GetProcessPEB(HANDLE hProcess, PPEB pPeb);
+
+VOID GetCurrentPEB(PPEB pPeb);
+
+DWORD InitUtils();
+
+VOID CleanupUtils();

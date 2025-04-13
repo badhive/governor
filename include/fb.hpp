@@ -14,12 +14,47 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <windows.h>
 #include "alca.fb.hpp"
 
-flatbuffers::FlatBufferBuilder MarshalFileEvent(
+void MarshalFileEvent(
+	flatbuffers::FlatBufferBuilder& builder,
 	Sensor::FileAction action,
 	std::wstring fileName,
 	std::wstring newFileName,
 	std::wstring opcodeName,
 	bool fileIsDir
+);
+
+void MarshalProcessEvent(
+	flatbuffers::FlatBufferBuilder& builder,
+	Sensor::ProcessAction action,
+	std::wstring opcodeName,
+	DWORD dwProcessId,
+	DWORD dwSelfProcessId,
+	std::string processName,
+	std::wstring commandLine,
+	std::wstring imageName
+);
+
+void MarshalNetworkEvent(
+	flatbuffers::FlatBufferBuilder& builder,
+	Sensor::NetworkAction action,
+	std::wstring opcodeName,
+	bool tcp,
+	bool udp,
+	bool ipv6,
+	std::string localAddr,
+	u_short localPort,
+	std::string remoteAddr,
+	u_short remotePort,
+	uint32_t size
+);
+
+void MarshalRegistryEvent(
+	flatbuffers::FlatBufferBuilder& builder,
+	Sensor::RegistryAction action,
+	std::wstring opcodeName,
+	std::wstring keyPath,
+	std::wstring valueName
 );

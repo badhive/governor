@@ -20,9 +20,15 @@
 
 #include <WinSock2.h>
 #include <mutex>
+#include "alca.fb.hpp"
 
 #include "alca.h"
 #include "log.hpp"
+
+// Table of prefixes used when sending events.
+// To add more event types, add a record to the table, which
+// should include the module name (unique) and version.
+// Use your prefix as the first argument to reporter::report_event.
 
 #define GV_EVENT_FILE_PREFIX "file"    , AC_VERSION(0, 0, 1)
 #define GV_EVENT_PROC_PREFIX "process" , AC_VERSION(0, 0, 1)
@@ -146,7 +152,7 @@ namespace governor {
 		std::vector<uint8_t> v;
 		uint32_t packet_size = 0;
 		uint32_t event_type_version = netint(event_version);
-		uint32_t event_type_len = netint( strlen(event_type) + 1 );
+		uint32_t event_type_len = netint((uint32_t)strlen(event_type) + 1);
 
 		insert_int(v, event_type_version);
 		insert_int(v, event_type_len);
@@ -156,7 +162,7 @@ namespace governor {
 		if (ac_packet_set_data(
 			hPacket,
 			v.data(),
-			v.size(),
+			(uint32_t)v.size(),
 			AC_PACKET_SEQUENCE_LAST
 		) != 0)
 		{
@@ -165,8 +171,8 @@ namespace governor {
 		}
 
 		const uint8_t* packet = ac_packet_serialize(hPacket, &packet_size);
-
-		packet_size = netint(v.size());
+		
+		packet_size = netint(packet_size);
 		if (send(s, reinterpret_cast<const char*>(&packet_size), sizeof(packet_size), 0) == SOCKET_ERROR)
 		{
 			ac_packet_destroy(hPacket);

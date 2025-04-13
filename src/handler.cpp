@@ -14,16 +14,16 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#define NOMINMAX
-
+#include "trace.hpp"
 #include <filesystem>
 #include <tchar.h>
+#include <psapi.h>
 
 #include "fb.hpp"
 #include "handler.hpp"
 #include "log.hpp"
 #include "reporter.hpp"
-#include "trace.hpp"
+#include "utils.hpp"
 
 #define WSTROP(op) L#op
 
@@ -212,7 +212,7 @@ void FileTraceCallback(const EVENT_RECORD& EventRecord, const krabs::trace_conte
 			entry.fileObject = fileObject;
 			entry.irp = irp;
 			entry.isDir = ie.isDir;
-
+			
 			fileContext.RenameRequestMap[irp.address] = entry;
 			return;
 		}
@@ -226,8 +226,10 @@ void FileTraceCallback(const EVENT_RECORD& EventRecord, const krabs::trace_conte
 	}
 	if (filePath.empty())
 		return;
-
-	flatbuffers::FlatBufferBuilder builder = MarshalFileEvent(
+	
+	flatbuffers::FlatBufferBuilder builder(1024);
+	MarshalFileEvent(
+		builder,
 		action,
 		filePath,
 		newFilePath,
@@ -238,35 +240,514 @@ void FileTraceCallback(const EVENT_RECORD& EventRecord, const krabs::trace_conte
 	int rc;
 	if ((rc = reporter->report_event(GV_EVENT_FILE_PREFIX, event_data, builder.GetSize())) != 0)
 	{
-		LogError(FILE_CATEGORY, __FUNCTIONT__, TEXT("Failed to report event: %d"), rc);
+		LogError(FILE_CATEGORY, __FUNCTIONT__, TEXT("Failed to report file event: %d"), rc);
 	}
 }
 
-void ProcessTraceCallback(const EVENT_RECORD&, const krabs::trace_context& ctx)
+void ProcessTraceCallback(const EVENT_RECORD& EventRecord, const krabs::trace_context& ctx)
 {
 	auto* userContext = (GV_EVENT_CONTEXT*)(ctx.user_context);
 	auto& mapLock = userContext->mapLock;
 	auto* reporter = userContext->reporter;
+
+	krabs::schema schema(EventRecord, ctx.schema_locator);
+	krabs::parser parser(schema);
+
+	std::wstring operation;
+	int opcode = schema.event_opcode();
+
+	DWORD selfPid = userContext->pi.dwProcessId;
+	DWORD pid = 0;
+	std::wstring cmdLine;
+	std::string processName;
+	std::wstring imageName; // empty
+	std::wstring opcodeName;
+
+	Sensor::ProcessAction action = Sensor::ProcessAction_MIN;
+	switch (opcode)
+	{
+	case PROCESS_START:
+	{
+		action = Sensor::ProcessAction_ProcessStart;
+		opcodeName = WSTROP(Sensor::ProcessAction_ProcessStart);
+		pid = parser.parse<uint32_t>(L"ProcessId");
+		processName = parser.parse<std::string>(L"ImageFileName");
+		cmdLine = parser.parse<std::wstring>(L"CommandLine");
+	}
+	break;
+	case PROCESS_END:
+	{
+		action = Sensor::ProcessAction_ProcessEnd;
+		opcodeName = WSTROP(Sensor::ProcessAction_ProcessEnd);
+		pid = parser.parse<uint32_t>(L"ProcessId");
+		processName = parser.parse<std::string>(L"ImageFileName");
+		cmdLine = parser.parse<std::wstring>(L"CommandLine");
+	}
+	break;
+	case MEM_VALLOC:
+	{
+		action = Sensor::ProcessAction_AllocLocal;
+		opcodeName = WSTROP(Sensor::ProcessAction_AllocLocal);
+		pid = parser.parse<uint32_t>(L"ProcessId");
+		if (pid != selfPid)
+		{
+			action = Sensor::ProcessAction_AllocRemote;
+			opcodeName = WSTROP(Sensor::ProcessAction_AllocRemote);
+			HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+			if (hProcess)
+			{
+				std::wstring imageNameW;
+				WCHAR ProcessImageName[18 + MAX_PATH]; // device path format
+				if (GetProcessImageFileNameW(hProcess, ProcessImageName, 18 + MAX_PATH) != 0)
+				{
+					imageNameW = ProcessImageName;
+					processName.assign(imageNameW.begin(), imageNameW.end());
+				}
+				PEB peb{};
+				DWORD status = GetProcessPEB(hProcess, &peb);
+				if (status == 0)
+				{
+					if (peb.ProcessParameters != NULL)
+						cmdLine = peb.ProcessParameters->CommandLine.Buffer;
+				}
+				else
+				{
+					LogError(
+						PROCESS_CATEGORY,
+						__FUNCTIONT__,
+						TEXT("failed to get PEB from %ls: %d"),
+						imageNameW.c_str(),
+						status);
+				}
+				CloseHandle(hProcess);
+			}
+			else
+			{
+				DWORD status = GetLastError();
+				// only if process has ended before we tried to query it
+				if (status != ERROR_INVALID_PARAMETER)
+					LogSystemError(PROCESS_CATEGORY, __FUNCTIONT__, status);
+			}
+		}	
+		break;
+	}
+	default: return;
+	}
+	flatbuffers::FlatBufferBuilder builder(1024);
+	MarshalProcessEvent(
+		builder,
+		action,
+		opcodeName,
+		pid,
+		selfPid,
+		processName,
+		cmdLine,
+		imageName
+	);
+	const uint8_t* event_data = builder.GetBufferPointer();
+	int rc;
+	if ((rc = reporter->report_event(GV_EVENT_PROC_PREFIX, event_data, builder.GetSize())) != 0)
+	{
+		LogError(PROCESS_CATEGORY, __FUNCTIONT__, TEXT("Failed to report process event: %d"), rc);
+	}
 }
 
-void NetworkTraceCallback(const EVENT_RECORD&, const krabs::trace_context& ctx)
+void ThreadTraceCallback(const EVENT_RECORD& EventRecord, const krabs::trace_context& ctx)
 {
 	auto* userContext = (GV_EVENT_CONTEXT*)(ctx.user_context);
 	auto& mapLock = userContext->mapLock;
 	auto* reporter = userContext->reporter;
+
+	krabs::schema schema(EventRecord, ctx.schema_locator);
+	krabs::parser parser(schema);
+
+	std::wstring operation;
+	int opcode = schema.event_opcode();
+
+	DWORD selfPid = userContext->pi.dwProcessId;
+	DWORD pid = 0;
+	std::wstring cmdLine;
+	std::string processName;
+	std::wstring imageName; // empty
+	std::wstring opcodeName;
+	Sensor::ProcessAction action = Sensor::ProcessAction_MIN;
+
+	switch (opcode)
+	{
+	case THREAD_START:
+	{
+		pid = parser.parse<uint32_t>(L"ProcessId");
+		if (pid != selfPid)
+		{
+			action = Sensor::ProcessAction_CreateRemoteThread;
+			opcodeName = WSTROP(Sensor::ProcessAction_CreateRemoteThread);
+		}
+		else
+		{
+			action = Sensor::ProcessAction_CreateLocalThread;
+			opcodeName = WSTROP(Sensor::ProcessAction_CreateLocalThread);
+		}
+	}
+	break;
+	case THREAD_END:
+	{
+		pid = parser.parse<uint32_t>(L"ProcessId");
+		if (pid != selfPid)
+		{
+			action = Sensor::ProcessAction_TerminateRemoteThread;
+			opcodeName = WSTROP(Sensor::ProcessAction_TerminateRemoteThread);
+		}
+		else
+		{
+			action = Sensor::ProcessAction_TerminateLocalThread;
+			opcodeName = WSTROP(Sensor::ProcessAction_TerminateLocalThread);
+		}
+	}
+	break;
+	default: return;
+	}
+	HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+	if (hProcess)
+	{
+		WCHAR ProcessImageName[18 + MAX_PATH]; // device path format
+		if (GetProcessImageFileNameW(hProcess, ProcessImageName, 18 + MAX_PATH) != 0)
+		{
+			std::wstring imageNameW = ProcessImageName;
+			processName.assign(imageNameW.begin(), imageNameW.end());
+		}
+		PEB peb{};
+		DWORD status = GetProcessPEB(hProcess, &peb);
+		if (status == 0)
+		{
+			if (peb.ProcessParameters != NULL)
+				cmdLine = peb.ProcessParameters->CommandLine.Buffer;
+		}
+		CloseHandle(hProcess);
+	}
+
+	flatbuffers::FlatBufferBuilder builder(1024);
+	MarshalProcessEvent(
+		builder,
+		action,
+		opcodeName,
+		pid,
+		selfPid,
+		processName,
+		cmdLine,
+		imageName
+	);
+	const uint8_t* event_data = builder.GetBufferPointer();
+	int rc;
+	if ((rc = reporter->report_event(GV_EVENT_PROC_PREFIX, event_data, builder.GetSize())) != 0)
+	{
+		LogError(PROCESS_CATEGORY, __FUNCTIONT__, TEXT("Failed to report process[thread] event: %d"), rc);
+	}
 }
 
-void RegistryTraceCallback(const EVENT_RECORD&, const krabs::trace_context& ctx)
+void ImageTraceCallback(const EVENT_RECORD& EventRecord, const krabs::trace_context& ctx)
 {
 	auto* userContext = (GV_EVENT_CONTEXT*)(ctx.user_context);
 	auto& mapLock = userContext->mapLock;
 	auto* reporter = userContext->reporter;
+
+	krabs::schema schema(EventRecord, ctx.schema_locator);
+	krabs::parser parser(schema);
+
+	std::wstring operation;
+	int opcode = schema.event_opcode();
+
+	DWORD selfPid = userContext->pi.dwProcessId;
+	DWORD pid = 0;
+	std::wstring cmdLine;
+	std::string processName;
+	std::wstring imageName;
+	std::wstring opcodeName;
+	Sensor::ProcessAction action = Sensor::ProcessAction_MIN;
+
+	switch (opcode)
+	{
+	case IMAGE_LOAD:
+	{
+		pid = parser.parse<uint32_t>(L"ProcessId");
+		imageName = parser.parse<std::wstring>(L"FileName");
+		action = Sensor::ProcessAction_ImageLoad;
+		opcodeName = WSTROP(Sensor::ProcessAction_ImageLoad);
+	}
+	break;
+	case IMAGE_UNLOAD:
+	{
+		pid = parser.parse<uint32_t>(L"ProcessId");
+		imageName = parser.parse<std::wstring>(L"FileName");
+		action = Sensor::ProcessAction_ImageUnload;
+		opcodeName = WSTROP(Sensor::ProcessAction_ImageUnload);
+	}
+	break;
+	default: return;
+	}
+	HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+	if (hProcess)
+	{
+		WCHAR ProcessImageName[18 + MAX_PATH]; // device path format
+		if (GetProcessImageFileNameW(hProcess, ProcessImageName, 18 + MAX_PATH) != 0)
+		{
+			std::wstring imageNameW = ProcessImageName;
+			processName.assign(imageNameW.begin(), imageNameW.end());
+		}
+		PEB peb{};
+		DWORD status = GetProcessPEB(hProcess, &peb);
+		if (status == 0)
+		{
+			if (peb.ProcessParameters != NULL)
+				cmdLine = peb.ProcessParameters->CommandLine.Buffer;
+		}
+		CloseHandle(hProcess);
+	}
+
+	flatbuffers::FlatBufferBuilder builder(1024);
+	MarshalProcessEvent(
+		builder,
+		action,
+		opcodeName,
+		pid,
+		selfPid,
+		processName,
+		cmdLine,
+		imageName
+	);
+	const uint8_t* event_data = builder.GetBufferPointer();
+	int rc;
+	if ((rc = reporter->report_event(GV_EVENT_PROC_PREFIX, event_data, builder.GetSize())) != 0)
+	{
+		LogError(PROCESS_CATEGORY, __FUNCTIONT__, TEXT("Failed to report process[image] event: %d"), rc);
+	}
+}
+
+void NetworkTraceCallback(const EVENT_RECORD& EventRecord, const krabs::trace_context& ctx)
+{
+	auto* userContext = (GV_EVENT_CONTEXT*)(ctx.user_context);
+	auto& mapLock = userContext->mapLock;
+	auto* reporter = userContext->reporter;
+
+	krabs::schema schema(EventRecord, ctx.schema_locator);
+	krabs::parser parser(schema);
+
+	std::wstring operation;
+	int opcode = schema.event_opcode();
+	
+	Sensor::NetworkAction action = Sensor::NetworkAction_MIN;
+	bool tcp = true;
+	bool udp = false;
+	bool ipv6 = false;
+	std::string sAddr;
+	krabs::ip_address sAddrStruct;
+	u_short sPort;
+
+	std::string dAddr;
+	krabs::ip_address dAddrStruct;
+	u_short dPort;
+
+	uint32_t size = 0;
+
+	switch (opcode)
+	{
+	case ACCEPT_IPV6:
+		ipv6 = true;
+		[[fallthrough]];
+	case EVENT_TRACE_TYPE_ACCEPT:
+	{
+		action = Sensor::NetworkAction_NetAccept;
+		operation = WSTROP(Sensor::NetworkAction_NetAccept);
+		dAddrStruct = parser.parse<krabs::ip_address>(L"daddr");
+		dPort = parser.parse<u_short>(L"dport");
+
+		sAddrStruct = parser.parse<krabs::ip_address>(L"saddr");
+		sPort = parser.parse<u_short>(L"sport");
+	}
+	break;
+	case CONNECT_IPV6:
+		ipv6 = true;
+		[[fallthrough]];
+	case EVENT_TRACE_TYPE_CONNECT:
+	{
+		action = Sensor::NetworkAction_NetConnect;
+		operation = WSTROP(Sensor::NetworkAction_NetConnect);
+		dAddrStruct = parser.parse<krabs::ip_address>(L"daddr");
+		dPort = parser.parse<u_short>(L"dport");
+
+		sAddrStruct = parser.parse<krabs::ip_address>(L"saddr");
+		sPort = parser.parse<u_short>(L"sport");
+	}
+	break;
+	case DISCONNECT_IPV6:
+		ipv6 = true;
+		[[fallthrough]];
+	case EVENT_TRACE_TYPE_DISCONNECT:
+	{
+		action = Sensor::NetworkAction_NetDisconnect;
+		operation = WSTROP(Sensor::NetworkAction_NetDisconnect);
+		dAddrStruct = parser.parse<krabs::ip_address>(L"daddr");
+		dPort = parser.parse<u_short>(L"dport");
+
+		sAddrStruct = parser.parse<krabs::ip_address>(L"saddr");
+		sPort = parser.parse<u_short>(L"sport");
+	}
+	break;
+	case SEND_IPV6:
+		ipv6 = true;
+		[[fallthrough]];
+	case EVENT_TRACE_TYPE_SEND:
+	{
+		action = Sensor::NetworkAction_NetSend;
+		operation = WSTROP(Sensor::NetworkAction_NetSend);
+		dAddrStruct = parser.parse<krabs::ip_address>(L"daddr");
+		dPort = parser.parse<u_short>(L"dport");
+
+		sAddrStruct = parser.parse<krabs::ip_address>(L"saddr");
+		sPort = parser.parse<u_short>(L"sport");
+		size = parser.parse<uint32_t>(L"size");
+	}
+	break;
+	case RECV_IPV6:
+		ipv6 = true;
+		[[fallthrough]];
+	case EVENT_TRACE_TYPE_RECEIVE:
+	{
+		action = Sensor::NetworkAction_NetReceive;
+		operation = WSTROP(Sensor::NetworkAction_NetReceive);
+		dAddrStruct = parser.parse<krabs::ip_address>(L"daddr");
+		dPort = parser.parse<u_short>(L"dport");
+
+		sAddrStruct = parser.parse<krabs::ip_address>(L"saddr");
+		sPort = parser.parse<u_short>(L"sport");
+		size = parser.parse<uint32_t>(L"size");
+	}
+	break;
+	default: return;
+	}
+	if (ipv6)
+	{
+		IN6_ADDR addr{ 0 };
+		char addrBuf[46];
+		memcpy(addr.u.Byte, sAddrStruct.v6, sizeof(addr.u.Byte));
+		sAddr = inet_ntop(AF_INET6, &addr, addrBuf, sizeof(addrBuf));
+
+		memcpy(addr.u.Byte, dAddrStruct.v6, sizeof(addr.u.Byte));
+		dAddr = inet_ntop(AF_INET6, &addr, addrBuf, sizeof(addrBuf));
+	}
+	else
+	{
+		IN_ADDR addr{ 0 };
+		char addrBuf[16];
+		addr.S_un.S_addr = sAddrStruct.v4;
+		sAddr = inet_ntop(AF_INET, &addr, addrBuf, sizeof(addrBuf));
+
+		addr.S_un.S_addr = dAddrStruct.v4;
+		dAddr = inet_ntop(AF_INET, &addr, addrBuf, sizeof(addrBuf));
+	}
+
+	flatbuffers::FlatBufferBuilder builder(1024);
+	MarshalNetworkEvent(
+		builder,
+		action,
+		operation,
+		tcp,
+		udp,
+		ipv6,
+		sAddr,
+		sPort,
+		dAddr,
+		dPort,
+		size
+	);
+	const uint8_t* event_data = builder.GetBufferPointer();
+	int rc;
+	if ((rc = reporter->report_event(GV_EVENT_NET_PREFIX, event_data, builder.GetSize())) != 0)
+	{
+		LogError(PROCESS_CATEGORY, __FUNCTIONT__, TEXT("Failed to report network event: %d"), rc);
+	}
+}
+
+void RegistryTraceCallback(const EVENT_RECORD& EventRecord, const krabs::trace_context& ctx)
+{
+	auto* userContext = (GV_EVENT_CONTEXT*)(ctx.user_context);
+	auto& mapLock = userContext->mapLock;
+	auto* reporter = userContext->reporter;
+	auto& regContext = userContext->Registry;
+
+	krabs::schema schema(EventRecord, ctx.schema_locator);
+	krabs::parser parser(schema);
+
+	std::wstring operation;
+	int opcode = schema.event_opcode();
+	std::lock_guard<std::shared_mutex> lock(mapLock);
+
+	Sensor::RegistryAction action = Sensor::RegistryAction_MIN;
+
+	std::wstring keyPath;
+	std::wstring valueName;
+	ULONG_PTR keyHandle;
+
+	std::wstring keyName = parser.parse<std::wstring>(L"KeyName");
+
+	switch (opcode)
+	{
+	// creating subkey event
+	case EVENT_TRACE_TYPE_REGCREATE:
+	{
+		action = Sensor::RegistryAction_RegOpenKey;
+		operation = WSTROP(Sensor::RegistryAction_RegOpenKey);
+		keyPath = keyName;
+	}
+	break;
+	case EVENT_TRACE_TYPE_REGKCBCREATE:
+	{
+		action = Sensor::RegistryAction_RegCreateKey;
+		operation = WSTROP(Sensor::RegistryAction_RegCreateKey);
+		keyPath = keyName;
+	}
+	break;
+	case EVENT_TRACE_TYPE_REGKCBDELETE:
+	{
+		action = Sensor::RegistryAction_RegDeleteKey;
+		operation = WSTROP(Sensor::RegistryAction_RegDeleteKey);
+		keyPath = keyName;
+	}
+	break;
+	case EVENT_TRACE_TYPE_REGSETVALUE:
+	{
+		action = Sensor::RegistryAction_RegSetValue;
+		operation = WSTROP(Sensor::RegistryAction_RegSetValue);
+		valueName = keyName;
+	}
+	break;
+	case EVENT_TRACE_TYPE_REGDELETEVALUE:
+	{
+		action = Sensor::RegistryAction_RegDeleteValue;
+		operation = WSTROP(Sensor::RegistryAction_RegDeleteValue);
+		valueName = keyName;
+	}
+	break;
+	case EVENT_TRACE_TYPE_REGFLUSH:
+	{
+		break;
+	}
+	default: return;
+	}
+	
+	flatbuffers::FlatBufferBuilder builder(1024);
+	MarshalRegistryEvent(builder, action, operation, keyPath, valueName);
+	const uint8_t* event_data = builder.GetBufferPointer();
+	int rc;
+	if ((rc = reporter->report_event(GV_EVENT_REG_PREFIX, event_data, builder.GetSize())) != 0)
+	{
+		LogError(PROCESS_CATEGORY, __FUNCTIONT__, TEXT("Failed to report registry event: %d"), rc);
+	}
 }
 
 void ErrorCallback(const EVENT_RECORD& EventRecord, const std::string& strerr)
 {
-	std::wstring szProvider = std::to_wstring(EventRecord.EventHeader.ProviderId);
 	std::wstring szError(strerr.begin(), strerr.end());
 
-	LogError(MAIN_CATEGORY, __FUNCTIONT__, TEXT("Provider = %ls: %ls"), szProvider.c_str(), szError.c_str());
+	// errors here usually aren't serious so we only log as verbose
+	LogVerbose(STATUS_SEVERITY_ERROR, MAIN_CATEGORY, TEXT("%ls"), szError.c_str());
 }

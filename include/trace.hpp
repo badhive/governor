@@ -38,8 +38,8 @@ typedef struct _TRACE_FILE_INFO_ENTRY
 typedef struct _GV_EVENT_CONTEXT
 {
 	governor::reporter *reporter;
+	const PROCESS_INFORMATION& pi;
 	std::shared_mutex mapLock;
-
 	struct {
 		std::map<ULONG_PTR, TRACE_FILE_MAP_ENTRY> CreateRequestMap;
 		std::map<ULONG_PTR, TRACE_FILE_MAP_ENTRY> RenameRequestMap;
@@ -47,13 +47,16 @@ typedef struct _GV_EVENT_CONTEXT
 		std::map<ULONG_PTR, TRACE_FILE_MAP_ENTRY> ModifiedFileMap;
 		std::map<ULONG_PTR, TRACE_FILE_INFO_ENTRY> ObjectInfoMap;
 	} File;
+	struct {
+		std::map<ULONG_PTR, std::wstring> RegistryHandleKeyMap;
+	} Registry;
 } GV_EVENT_CONTEXT, * PGV_EVENT_CONTEXT;
 
 typedef struct _GV_TRACE_CONTEXT
 {
 	const PROCESS_INFORMATION& pi;
-	SOCKET AlcaClient;
-	krabs::kernel_trace *Trace;
+	SOCKET client_socket;
+	krabs::kernel_trace *trace;
 } GV_TRACE_CONTEXT, * PGV_TRACE_CONTEXT;
 
 DWORD GvTraceStart(LPVOID);

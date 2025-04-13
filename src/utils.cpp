@@ -15,10 +15,42 @@
  */
 
 #include <windows.h>
+#include <ntstatus.h>
 #include <aclapi.h>
 #include <sddl.h>
 
 #include "utils.hpp"
+
+struct {
+    HMODULE hNtdll;
+    struct {
+        NtQueryInformationProcess_t NtQueryInformationProcess;
+    } Functions;
+} UtilContext;
+
+DWORD InitUtils()
+{
+    ZeroMemory(&UtilContext, sizeof(UtilContext));
+    UtilContext.hNtdll = LoadLibraryW(L"ntdll.dll");
+    if (UtilContext.hNtdll == NULL)
+    {
+        return GetLastError();
+    }
+    UtilContext.Functions.NtQueryInformationProcess = reinterpret_cast<NtQueryInformationProcess_t>(
+        GetProcAddress(UtilContext.hNtdll, "NtQueryInformationProcess"));
+    if (UtilContext.Functions.NtQueryInformationProcess == NULL)
+    {
+        return GetLastError();
+    }
+    return ERROR_SUCCESS;
+}
+
+VOID CleanupUtils()
+{
+    if (UtilContext.hNtdll)
+        FreeLibrary(UtilContext.hNtdll);
+    ZeroMemory(&UtilContext, sizeof(UtilContext));
+}
 
 DWORD CreateSuspendedProcess(LPCWSTR lpExecutablePath, LPPROCESS_INFORMATION ppi)
 {
@@ -54,8 +86,51 @@ std::wstring RandomGuid()
     GUID fileGuid{ 0 };
     if (CoCreateGuid(&fileGuid) == S_OK)
     {
-        guidString.resize(37);
-        StringFromGUID2(fileGuid, guidString.data(), guidString.size());
+        guidString.resize(39);
+        int rc = StringFromGUID2(fileGuid, guidString.data(), guidString.size());
+        guidString.resize(38);
     }
     return guidString;
+}
+
+DWORD GetProcessPEB(HANDLE hProcess, PPEB pPeb)
+{
+    PROCESS_BASIC_INFORMATION pbi{};
+    NTSTATUS status = UtilContext.Functions.NtQueryInformationProcess(
+        hProcess,
+        ProcessBasicInformation,
+        &pbi,
+        sizeof(pbi),
+        NULL
+    );
+    if (status != STATUS_SUCCESS)
+    {
+        return status;
+    }
+    if (pbi.PebBaseAddress == NULL)
+    {
+        return STATUS_UNSUCCESSFUL;
+    }
+    SIZE_T dwBytesRead = 0;
+    if (!ReadProcessMemory(
+        hProcess,
+        pbi.PebBaseAddress,
+        pPeb,
+        sizeof(PEB),
+        &dwBytesRead
+    ))
+    {
+        return GetLastError();
+    }
+}
+
+VOID GetCurrentPEB(PPEB pPeb)
+{
+#if defined(_M_X64) // x64
+    PTEB pTeb = (PTEB)__readgsqword(offsetof(NT_TIB, Self));
+#else // x86
+    PTEB pTeb = (PTEB)__readfsdword(offsetof(NT_TIB, Self));
+#endif
+    if (pTeb)
+        *pPeb = *(pTeb->ProcessEnvironmentBlock);
 }

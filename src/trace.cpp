@@ -21,9 +21,27 @@
 	krabs::kernel::provider provider; \
 	krabs::event_filter provider##_filter(krabs::predicates::process_id_is(TraceContext->pi.dwProcessId)); \
 	provider##_filter.add_on_event_callback(callback); \
+	provider##_filter.add_on_error_callback(ErrorCallback); \
 	provider.add_filter(provider##_filter); \
-	provider.add_on_error_callback(ErrorCallback); \
 	trace->enable(provider); \
+
+VOID GvTraceSetupNetworkProvider(PGV_TRACE_CONTEXT TraceContext, krabs::kernel::network_tcpip_provider& provider)
+{
+	// TCP-IP provider needs to be set up separately: a lot of work is done in a separate thread so we
+	// can't filter by PID. We need to get the PID by parsing the event. Most TCP-IP events have a PID member.
+	provider.add_on_event_callback([](const EVENT_RECORD& record, const krabs::trace_context& trace_context) {
+		krabs::schema schema(record, trace_context.schema_locator);
+		auto* userContext = (PGV_EVENT_CONTEXT)trace_context.user_context;
+		if (schema.event_opcode() != 17) // TcpIp_Fail doesn't have PID member, we don't care about it regardless
+		{
+			krabs::parser parser(schema);
+			uint32_t pid = parser.parse<uint32_t>(L"PID");
+			if (pid == userContext->pi.dwProcessId)
+				NetworkTraceCallback(record, trace_context);
+		}
+		});
+	TraceContext->trace->enable(provider);
+}
 
 DWORD GvTraceStart(LPVOID lpParameter)
 {
@@ -33,6 +51,7 @@ DWORD GvTraceStart(LPVOID lpParameter)
 	 https://learn.microsoft.com/en-us/windows/win32/etw/fileio#remarks.
 	 We don't need a callback to handle its events though.*/
 	krabs::kernel::disk_io_provider disk_io_provider;
+	krabs::kernel::network_tcpip_provider network_tcpip_provider;
 
 	EVENT_TRACE_PROPERTIES properties{ 0 };
 	properties.BufferSize = 64;
@@ -40,28 +59,25 @@ DWORD GvTraceStart(LPVOID lpParameter)
 	properties.MaximumBuffers = 32;
 	properties.FlushTimer = 1;
 
-	TraceContext->Trace->set_trace_properties(&properties);
+	TraceContext->trace->set_trace_properties(&properties);
 
-	TraceContext->Trace->enable(disk_io_provider);
+	TraceContext->trace->enable(disk_io_provider);
+	GvTraceSetupNetworkProvider(TraceContext, network_tcpip_provider);
 
 	// why these geniuses wouldn't add a trace-wide filtering mechanism is beyond me
-	SETUP_PROVIDER(TraceContext->Trace, process_provider, ProcessTraceCallback);
-	SETUP_PROVIDER(TraceContext->Trace, thread_provider, ProcessTraceCallback);
-	SETUP_PROVIDER(TraceContext->Trace, image_load_provider, ProcessTraceCallback);
-	SETUP_PROVIDER(TraceContext->Trace, virtual_alloc_provider, ProcessTraceCallback);
-
-	SETUP_PROVIDER(TraceContext->Trace, file_io_provider, FileTraceCallback);
-	SETUP_PROVIDER(TraceContext->Trace, file_init_io_provider, FileTraceCallback);
-	SETUP_PROVIDER(TraceContext->Trace, disk_file_io_provider, FileTraceCallback);
-
-	SETUP_PROVIDER(TraceContext->Trace, network_tcpip_provider, NetworkTraceCallback);
-
-	SETUP_PROVIDER(TraceContext->Trace, registry_provider, RegistryTraceCallback);
+	SETUP_PROVIDER(TraceContext->trace, process_provider, ProcessTraceCallback);
+	SETUP_PROVIDER(TraceContext->trace, virtual_alloc_provider, ProcessTraceCallback);
+	SETUP_PROVIDER(TraceContext->trace, thread_provider, ThreadTraceCallback);
+	SETUP_PROVIDER(TraceContext->trace, image_load_provider, ImageTraceCallback);
+	SETUP_PROVIDER(TraceContext->trace, file_io_provider, FileTraceCallback);
+	SETUP_PROVIDER(TraceContext->trace, file_init_io_provider, FileTraceCallback);
+	SETUP_PROVIDER(TraceContext->trace, disk_file_io_provider, FileTraceCallback);
+	SETUP_PROVIDER(TraceContext->trace, registry_provider, RegistryTraceCallback);
 
 	if (ResumeThread(TraceContext->pi.hThread) == -1)
 	{
 		return GetLastError();
 	}
-	TraceContext->Trace->start();
+	TraceContext->trace->start();
 	return ERROR_SUCCESS;
 }
