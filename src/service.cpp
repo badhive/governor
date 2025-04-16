@@ -251,8 +251,9 @@ VOID WINAPI SvcMain(DWORD dwArgc, LPTSTR *lpszArgv)
 }
 
 static BOOL WINAPI ctrlHandler(DWORD signal) {
-	if (signal == CTRL_C_EVENT)
+	switch (signal)
 	{
+	case CTRL_C_EVENT:
 		SetEvent(g_hStopEvent);
 		CleanupUtils();
 	}

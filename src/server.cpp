@@ -346,6 +346,13 @@ void HandleConn(PGV_CONN_CTX ctx)
             done = 1;
             endReason = L"execution completed";
         }
+        // process thread exit
+        else if (WaitForSingleObject(pi.hThread, 0) == WAIT_OBJECT_0)
+        {
+            noexit = 1;
+            done = 1;
+            endReason = L"execution completed";
+        }
 
         if (done)
         {
