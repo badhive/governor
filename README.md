@@ -14,7 +14,12 @@ The session created by Governor is a NT Kernel session, and as such requires adm
 
 Governor can be installed as a service or run as a standalone binary.
 
-To build, open the solution (.sln) in Visual Studio 2022 and build the Governor project.
+You should first install the
+[Visual Studio runtime libraries](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170).
+
+To build, open the solution (.sln) in Visual Studio 2022 and:
+1. compile the message file (used for logging): `mc.exe governor.mc`
+2. build the project.
 
 ```
 C:\> .\x64\Debug\governor.exe /?
